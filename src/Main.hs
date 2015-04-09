@@ -2,64 +2,49 @@
 
 module Main where
 
-import Data.Text
-import Data.Aeson
--- import Data.Default
-import Data.Conduit
-import qualified Data.Conduit.Binary as CB
--- import Control.Applicative
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Resource
-import GHC.Generics
-import Network.HTTP.Conduit
-import qualified Data.ByteString.Lazy as B
-import qualified Data.ByteString.Char8 as BS
+import Control.Exception
 
-username :: String
-username = "mojombo"
+type User = String
 
-usersUrl :: String
-usersUrl = "https://api.github.com/users/"
+database :: FilePath
+database = "database"
 
-getUser :: IO B.ByteString
-getUser = simpleHttp $ usersUrl ++ username
+tryReadFile :: FilePath -> IO (Either IOException String)
+tryReadFile path = try $ readFile path
 
-data User = User { id            :: Int
-                 , login         :: !Text
-                 , site_admin    :: Bool
-                 } deriving (Show, Generic)
+readFileMaybe :: FilePath -> IO (Maybe String)
+readFileMaybe path =
+    tryReadFile path >>= \smth ->
+        case smth of
+            Left _ -> return Nothing
+            Right content -> return $ Just content
 
-instance FromJSON User
-instance ToJSON User
+-- fetch from local store
+fetchUser :: Int -> IO (Maybe User)
+fetchUser _ = readFileMaybe database
 
-adminText :: User -> String
-adminText user = if site_admin user then "Admin" else "Normal"
+-- get from web service
+getUser :: Int -> IO (Maybe User)
+getUser id = return $ Just $ "pooh" ++ " " ++ show id
 
-parseSink :: Sink BS.ByteString (ResourceT IO) ()
-parseSink = do
-    md <- await
-    case md of
-        Nothing -> return ()
-        Just smth -> do
-            liftIO $ BS.putStrLn smth
-            parseSink
+-- write to local store and return
+writeUser :: Maybe User -> IO (Maybe User)
+writeUser maybeUser =
+    case maybeUser of
+        Just user -> writeFile database user >> return maybeUser
+        Nothing -> return maybeUser
+
+obtainUser :: Int -> IO (Maybe User)
+obtainUser id = 
+    fetchUser id >>= \maybeUser ->
+        case maybeUser of
+            Just user -> return $ Just user
+            Nothing -> getUser id >>= writeUser
 
 main :: IO ()
-main = do
-    manager <- newManager conduitManagerSettings
-    request <- parseUrl $ usersUrl ++ username
-    let headers = requestHeaders request
-        request' = request {
-            requestHeaders =
-                ("User-agent", "haskell-bot") : headers
-        }
-    runResourceT $ do
-        response <- http request' manager
-        responseBody response $$+- CB.lines =$ parseSink
-   
-
-    -- json <- (eitherDecode <$> getUser) :: IO (Either String User)
-    -- case json of
-    --     Left error -> putStrLn error
-    --     Right user -> print user
+main =
+    obtainUser 5 >>= \val ->
+        case val of
+            Nothing -> putStrLn "Nothing"
+            Just x -> putStrLn $ "Just" ++ " " ++ show x
 
