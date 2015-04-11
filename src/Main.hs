@@ -3,6 +3,10 @@
 module Main where
 
 import Control.Exception
+import Network.HTTP.Conduit
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.Resource
+import qualified Data.ByteString.Char8 as BS
 
 type User = String
 
@@ -41,10 +45,26 @@ obtainUser id =
             Just user -> return $ Just user
             Nothing -> getUser id >>= writeUser
 
+username :: String
+username = "mojombo"
+
+usersUrl :: String
+usersUrl = "https://api.github.com/users/"
+
+userAgent :: BS.ByteString
+userAgent = "haskell-bot"
+
+setUserAgent :: Request -> BS.ByteString -> Request
+setUserAgent request agent =
+    let headers = requestHeaders request
+    in request {
+            requestHeaders = ("User-agent", agent) : headers
+       }
+
 main :: IO ()
-main =
-    obtainUser 5 >>= \val ->
-        case val of
-            Nothing -> putStrLn "Nothing"
-            Just x -> putStrLn $ "Just" ++ " " ++ show x
+main = withManager $ \manager -> do
+    initRequest <- parseUrl $ usersUrl ++ username
+    request <- return $ setUserAgent initRequest userAgent
+    response <- httpLbs request manager
+    liftIO $ print $ responseBody response
 
