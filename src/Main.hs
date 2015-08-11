@@ -2,6 +2,10 @@
 
 module Main where
 
+import Data.Aeson
+import Data.Text
+-- import Control.Applicative
+import GHC.Generics
 import Control.Exception
 import Network.HTTP.Conduit
 import Network.HTTP.Types.Status
@@ -21,7 +25,7 @@ defaultUsername :: String
 defaultUsername = "mojombo"
 
 usersUrl :: String
-usersUrl = "https://api.github.com/users_/"
+usersUrl = "https://api.github.com/users/"
 
 userAgent :: BS.ByteString
 userAgent = "haskell-bot"
@@ -86,6 +90,22 @@ obtainUser username =
         case maybeUser of
             Just user -> return $ Just user
             Nothing -> getUser username >>= writeUser
+
+
+data GHUser = GHUser { id           :: Int
+                     , login        :: !Text
+                     , avatar_url   :: !Text
+                     , site_admin   :: Bool
+                     } deriving (Show, Generic)
+
+instance FromJSON GHUser
+instance ToJSON GHUser
+
+parseUser :: Maybe BL.ByteString -> IO (Either String GHUser)
+parseUser json =
+    case json of
+        Nothing -> return $ Left "Empty JSON is given"
+        Just json -> return $ eitherDecode json
 
 main :: IO ()
 main = obtainUser defaultUsername >>= \user ->
