@@ -16,7 +16,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as Text
 import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 
-type User = String
+type JSONString = String
 
 database :: FilePath
 database = "database"
@@ -59,14 +59,14 @@ stringResponseBody :: Response BL.ByteString -> String
 stringResponseBody = string . strict . responseBody
 
 -- fetch from local store
-fetchUser :: String -> IO (Maybe User)
+fetchUser :: String -> IO (Maybe JSONString)
 fetchUser _ = readFileMaybe database
 
 configureRequest :: Request -> Request
 configureRequest request = setDontCheckStatus $ setUserAgent request userAgent
 
 -- get from web service
-getUser :: String -> IO (Maybe User)
+getUser :: String -> IO (Maybe JSONString)
 getUser username = withManager $ \manager -> do
     request' <- parseUrl $ usersUrl ++ username
     let request = configureRequest request'
@@ -78,13 +78,13 @@ getUser username = withManager $ \manager -> do
         else return Nothing
 
 -- write to local store and return
-writeUser :: Maybe User -> IO (Maybe User)
+writeUser :: Maybe JSONString -> IO (Maybe JSONString)
 writeUser maybeUser =
     case maybeUser of
         Just user -> writeFile database user >> return maybeUser
         Nothing -> return maybeUser
 
-obtainUser :: String -> IO (Maybe User)
+obtainUser :: String -> IO (Maybe JSONString)
 obtainUser username = 
     fetchUser username >>= \maybeUser ->
         case maybeUser of
