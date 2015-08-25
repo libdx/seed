@@ -2,6 +2,7 @@
 
 module Main where
 
+import System.IO
 import Data.Aeson
 import Data.Text
 -- import Control.Applicative
@@ -112,5 +113,19 @@ main = obtainUser defaultUsername >>= \user ->
     case user of
         Nothing -> putStrLn "Nothing"
         Just user -> putStrLn user
-   
 
+-- Add promt and repl functions for future use
+prompt :: String -> IO String
+prompt string = do
+    putStr string
+    hFlush stdout
+    getLine
+
+repl :: IO ()
+repl = do
+    input <- prompt "> "
+    if input == "exit"
+        then return ()
+        else do
+            putStrLn "type exit if you want escape"
+            repl
