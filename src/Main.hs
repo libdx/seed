@@ -17,7 +17,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as Text
 import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 
-type JSONString = String
+type JSONString = BS.ByteString
 
 database :: FilePath
 database = "database"
@@ -46,10 +46,10 @@ setDontCheckStatus :: Request -> Request
 setDontCheckStatus request =
     request { checkStatus = \_ _ _ -> Nothing }
 
-tryReadFile :: FilePath -> IO (Either IOException String)
-tryReadFile path = try $ readFile path
+tryReadFile :: FilePath -> IO (Either IOException BS.ByteString)
+tryReadFile path = try $ BS.readFile path
 
-readFileMaybe :: FilePath -> IO (Maybe String)
+readFileMaybe :: FilePath -> IO (Maybe BS.ByteString)
 readFileMaybe path =
     tryReadFile path >>= \smth ->
         case smth of
@@ -58,6 +58,9 @@ readFileMaybe path =
 
 stringResponseBody :: Response BL.ByteString -> String
 stringResponseBody = string . strict . responseBody
+
+strictResponseBody :: Response BL.ByteString -> BS.ByteString
+strictResponseBody = strict . responseBody
 
 -- fetch from local store
 fetchUser :: String -> IO (Maybe JSONString)
@@ -75,14 +78,14 @@ getUser username = withManager $ \manager -> do
     response <- httpLbs request manager
     statusCode <- return $ statusCode $ responseStatus response
     if 200 <= statusCode && statusCode < 300
-        then return $ Just $ stringResponseBody response
+        then return $ Just $ strictResponseBody response
         else return Nothing
 
 -- write to local store and return
 writeUser :: Maybe JSONString -> IO (Maybe JSONString)
 writeUser maybeUser =
     case maybeUser of
-        Just user -> writeFile database user >> return maybeUser
+        Just user -> BS.writeFile database user >> return maybeUser
         Nothing -> return maybeUser
 
 obtainUser :: String -> IO (Maybe JSONString)
@@ -112,7 +115,7 @@ main :: IO ()
 main = obtainUser defaultUsername >>= \user ->
     case user of
         Nothing -> putStrLn "Nothing"
-        Just user -> putStrLn user
+        Just user -> putStrLn $ string user
 
 -- Add promt and repl functions for future use
 prompt :: String -> IO String
