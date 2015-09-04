@@ -67,13 +67,19 @@ stringResponseBody = string . strict . responseBody
 strictResponseBody :: Response BL.ByteString -> BS.ByteString
 strictResponseBody = strict . responseBody
 
+decodeMaybe :: FromJSON a => Maybe BS.ByteString -> Maybe a
+decodeMaybe maybeJson = 
+    case maybeJson of
+        Just json -> decodeStrict json
+        Nothing -> Nothing
+
 -- fetch from local store
-fetchUser :: String -> IO (Maybe JSONString)
-fetchUser _ = readFileMaybe database
+fetchUser :: String -> IO (Maybe User)
+fetchUser _ = readFileMaybe database >>= \json -> return $ decodeMaybe json
 
 -- get from web service
-getUser :: String -> IO (Maybe JSONString)
-getUser username = runGetRequest $ usersUrl ++ username
+getUser :: String -> IO (Maybe User)
+getUser username = (runGetRequest $ usersUrl ++ username) >>= \json -> return $ decodeMaybe json
 
 getUsers :: IO (Maybe JSONString)
 getUsers = runGetRequest $ usersUrl
@@ -103,13 +109,15 @@ runRequest request = withManager $ \manager -> do
         else return Nothing
  
 -- write to local store and return
-writeUser :: Maybe JSONString -> IO (Maybe JSONString)
+writeUser :: Maybe User -> IO (Maybe User)
 writeUser maybeUser =
     case maybeUser of
-        Just user -> BS.writeFile database user >> return maybeUser
+        Just user -> (BS.writeFile database $ encodeStrict user) >> return maybeUser
         Nothing -> return maybeUser
+    where
+        encodeStrict = strict . encode
 
-obtainUser :: String -> IO (Maybe JSONString)
+obtainUser :: String -> IO (Maybe User)
 obtainUser username = 
     fetchUser username >>= \maybeUser ->
         case maybeUser of
@@ -125,14 +133,11 @@ data User = User { id           :: Int
 instance FromJSON User
 instance ToJSON User
 
-parseUser :: BL.ByteString -> Either String User
-parseUser json = eitherDecode json
-
 main :: IO ()
 main = obtainUser defaultUsername >>= \user ->
     case user of
         Nothing -> print "Nothing"
-        Just user -> print $ parseUser $ lazy user
+        Just user -> print user
 
 -- Add promt and repl functions for future use
 prompt :: String -> IO String
