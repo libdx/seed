@@ -18,10 +18,16 @@ import qualified Data.Text as Text
 import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 import Control.Monad.Catch
 
+bytes = encodeUtf8 . Text.pack
+string = Text.unpack . decodeUtf8
+strict = BL.toStrict
+lazy = BL.fromStrict
+
+{- network utils -}
+
 type JSONString = BS.ByteString
 
-database :: FilePath
-database = "database"
+data HttpMethod = GET | POST | PUT | PATCH | DELETE deriving (Enum, Show)
 
 defaultUsername :: String
 defaultUsername = "mojombo"
@@ -29,37 +35,22 @@ defaultUsername = "mojombo"
 usersUrl :: String
 usersUrl = "https://api.github.com/users/"
 
-reposUrlPart :: String
-reposUrlPart = "repos"
+reposPath :: String
+reposPath = "repos"
 
 userAgent :: BS.ByteString
 userAgent = "haskell-bot"
 
-bytes = encodeUtf8 . Text.pack
-string = Text.unpack . decodeUtf8
-strict = BL.toStrict
-lazy = BL.fromStrict
 
-setUserAgent :: Request -> BS.ByteString -> Request
-setUserAgent request agent =
+configureRequest :: HttpMethod -> Request -> Request
+configureRequest method request =
     let headers = requestHeaders request
-    in request {
-            requestHeaders = ("User-agent", agent) : headers
-       }
+    in request
+        { requestHeaders = ("User-agent", userAgent) : headers
+          , checkStatus = \_ _ _ -> Nothing
+          , method = bytes $ show method
+        }
 
-setDontCheckStatus :: Request -> Request
-setDontCheckStatus request =
-    request { checkStatus = \_ _ _ -> Nothing }
-
-tryReadFile :: FilePath -> IO (Either EX.IOException BS.ByteString)
-tryReadFile path = EX.try $ BS.readFile path
-
-readFileMaybe :: FilePath -> IO (Maybe BS.ByteString)
-readFileMaybe path =
-    tryReadFile path >>= \smth ->
-        case smth of
-            Left _ -> return Nothing
-            Right content -> return $ Just content
 
 stringResponseBody :: Response BL.ByteString -> String
 stringResponseBody = string . strict . responseBody
@@ -67,55 +58,78 @@ stringResponseBody = string . strict . responseBody
 strictResponseBody :: Response BL.ByteString -> BS.ByteString
 strictResponseBody = strict . responseBody
 
-decodeMaybe :: FromJSON a => Maybe BS.ByteString -> Maybe a
-decodeMaybe maybeJson = 
-    case maybeJson of
-        Just json -> decodeStrict json
-        Nothing -> Nothing
-
--- fetch from local store
-fetchUser :: String -> IO (Maybe User)
-fetchUser _ = readFileMaybe database >>= \json -> return $ decodeMaybe json
-
 -- get from web service
 getUser :: String -> IO (Maybe User)
-getUser username = (runGetRequest $ usersUrl ++ username) >>= \json -> return $ decodeMaybe json
+getUser username = (runRequest GET $ usersUrl ++ username) >>= \json ->
+    return $ decodeWithMaybe json
 
 getUsers :: IO (Maybe JSONString)
-getUsers = runGetRequest $ usersUrl
+getUsers = runRequest GET usersUrl
 
 getRepo :: String -> IO (Maybe JSONString)
-getRepo username = runGetRequest $ usersUrl ++ "/" ++ username ++ "/" ++ reposUrlPart
+getRepo username = runRequest GET $ usersUrl ++ "/" ++ username ++ "/" ++ reposPath
 
-runGetRequest :: String -> IO (Maybe JSONString)
-runGetRequest url = do
-    request <- makeRequest url
-    runRequest request
+runRequest :: HttpMethod -> String -> IO (Maybe JSONString)
+runRequest method url = makeRequest method url >>= runRequest'
 
-configureRequest :: Request -> Request
-configureRequest request = setDontCheckStatus $ setUserAgent request userAgent
+makeRequest :: MonadThrow m => HttpMethod -> String -> m Request
+makeRequest method url = do
+    request <- parseUrl url
+    return $ configureRequest method request
 
-makeRequest :: MonadThrow m => String -> m Request
-makeRequest url = do
-    request' <- parseUrl url
-    return $ configureRequest request'
-
-runRequest :: Request -> IO (Maybe JSONString)
-runRequest request = withManager $ \manager -> do
+runRequest' :: Request -> IO (Maybe JSONString)
+runRequest' request = withManager $ \manager -> do
     response <- httpLbs request manager
     statusCode <- return $ statusCode $ responseStatus response
     if 200 <= statusCode && statusCode < 300
         then return $ Just $ strictResponseBody response
         else return Nothing
  
+-- apiCall :: FromJSON a => HttpMethod -> [String] -> [(String, String)] -> IO (Maybe a)
+-- apiCall method paths params =
+
+{- file utils -}
+
+database :: FilePath
+database = "database"
+
+tryReadFile :: FilePath -> IO (Either EX.IOException BS.ByteString)
+tryReadFile path = EX.try $ BS.readFile path
+
+maybeReadFile :: FilePath -> IO (Maybe BS.ByteString)
+maybeReadFile path =
+    tryReadFile path >>= \smth ->
+        case smth of
+            Left _ -> return Nothing
+            Right content -> return $ Just content
+
+decodeWithMaybe :: FromJSON a => Maybe BS.ByteString -> Maybe a
+decodeWithMaybe maybeJson = 
+    case maybeJson of
+        Just json -> decodeStrict json
+        Nothing -> Nothing
+
+-- fetch from local store
+fetchUser :: String -> IO (Maybe User)
+fetchUser _ = maybeReadFile database >>= \json ->
+    return $ decodeWithMaybe json
+
 -- write to local store and return
 writeUser :: Maybe User -> IO (Maybe User)
 writeUser maybeUser =
     case maybeUser of
-        Just user -> (BS.writeFile database $ encodeStrict user) >> return maybeUser
+        Just user -> writeRecord user >>= \user -> return $ Just user
         Nothing -> return maybeUser
-    where
-        encodeStrict = strict . encode
+
+writeRecord :: ToJSON a => a -> IO a
+writeRecord record =
+    (BS.writeFile database $ (strict . encode) record) >> return record
+
+writeRecord2 :: ToJSON a => Maybe a -> IO (Maybe a)
+writeRecord2 maybeRecord =
+    case maybeRecord of
+        Just record -> (BS.writeFile database $ (strict. encode) record) >> return maybeRecord
+        Nothing -> return Nothing
 
 obtainUser :: String -> IO (Maybe User)
 obtainUser username = 
@@ -132,6 +146,14 @@ data User = User { id           :: Int
 
 instance FromJSON User
 instance ToJSON User
+
+data Repo = Repo { repoId       :: Int
+                 , repoName     :: !Text
+                 , repoPrivate  :: Bool
+                 } deriving (Show, Generic)
+
+instance FromJSON Repo
+instance ToJSON Repo
 
 main :: IO ()
 main = obtainUser defaultUsername >>= \user ->
