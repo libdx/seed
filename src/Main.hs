@@ -115,18 +115,8 @@ fetchUser _ = maybeReadFile database >>= \json ->
     return $ decodeWithMaybe json
 
 -- write to local store and return
-writeUser :: Maybe User -> IO (Maybe User)
-writeUser maybeUser =
-    case maybeUser of
-        Just user -> writeRecord user >>= \user -> return $ Just user
-        Nothing -> return maybeUser
-
-writeRecord :: ToJSON a => a -> IO a
-writeRecord record =
-    (BS.writeFile database $ (strict . encode) record) >> return record
-
-writeRecord2 :: ToJSON a => Maybe a -> IO (Maybe a)
-writeRecord2 maybeRecord =
+writeRecord :: ToJSON a => Maybe a -> IO (Maybe a)
+writeRecord maybeRecord =
     case maybeRecord of
         Just record -> (BS.writeFile database $ (strict. encode) record) >> return maybeRecord
         Nothing -> return Nothing
@@ -136,7 +126,7 @@ obtainUser username =
     fetchUser username >>= \maybeUser ->
         case maybeUser of
             Just user -> return $ Just user
-            Nothing -> getUser username >>= writeUser
+            Nothing -> getUser username >>= writeRecord
 
 data User = User { id           :: Int
                  , login        :: !Text
