@@ -64,8 +64,8 @@ strictResponseBody = strict . responseBody
 getUser :: String -> IO (Maybe User)
 getUser username = decodeJSON =<< (apiCall GET [usersPath, username])
 
-getUsers :: IO (Maybe JSONString)
-getUsers = apiCall GET [usersPath]
+getUsers :: IO (Maybe [User])
+getUsers = decodeJSON =<< apiCall GET [usersPath]
 
 getRepo :: String -> IO (Maybe JSONString)
 getRepo username = apiCall GET [usersPath, username, reposPath]
