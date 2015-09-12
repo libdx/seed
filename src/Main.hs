@@ -131,12 +131,6 @@ maybeReadFile path =
             Left _ -> return Nothing
             Right content -> return $ Just content
 
--- decodeWithMaybe :: FromJSON a => Maybe BS.ByteString -> Maybe a
--- decodeWithMaybe maybeJson = 
---     case maybeJson of
---         Just json -> decodeStrict json
---         Nothing -> Nothing
-
 decodeJSON :: FromJSON a => Maybe JSONString -> IO (Maybe a)
 decodeJSON maybeJson =
     case maybeJson of
@@ -182,3 +176,4 @@ repl = do
         else do
             putStrLn "type exit if you want escape"
             repl
+
