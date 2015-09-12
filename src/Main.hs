@@ -5,6 +5,7 @@ module Main where
 import System.IO
 import Data.Aeson
 import Data.Text
+import qualified Data.List as List
 -- import Control.Applicative
 import GHC.Generics
 import qualified Control.Exception as EX
@@ -32,15 +33,17 @@ data HttpMethod = GET | POST | PUT | PATCH | DELETE deriving (Enum, Show)
 defaultUsername :: String
 defaultUsername = "mojombo"
 
-usersUrl :: String
-usersUrl = "https://api.github.com/users/"
+endpoint :: String
+endpoint = "https://api.github.com"
+
+usersPath :: String
+usersPath = "users"
 
 reposPath :: String
 reposPath = "repos"
 
 userAgent :: BS.ByteString
 userAgent = "haskell-bot"
-
 
 configureRequest :: HttpMethod -> Request -> Request
 configureRequest method request =
@@ -51,7 +54,6 @@ configureRequest method request =
           , method = bytes $ show method
         }
 
-
 stringResponseBody :: Response BL.ByteString -> String
 stringResponseBody = string . strict . responseBody
 
@@ -60,34 +62,34 @@ strictResponseBody = strict . responseBody
 
 -- get from web service
 getUser :: String -> IO (Maybe User)
-getUser username = (runRequest GET $ usersUrl ++ username) >>= \json ->
-    return $ decodeWithMaybe json
+getUser username = decodeJSON =<< (apiCall GET [usersPath, username])
 
 getUsers :: IO (Maybe JSONString)
-getUsers = runRequest GET usersUrl
+getUsers = apiCall GET [usersPath]
 
 getRepo :: String -> IO (Maybe JSONString)
-getRepo username = runRequest GET $ usersUrl ++ "/" ++ username ++ "/" ++ reposPath
+getRepo username = apiCall GET [usersPath, username, reposPath]
 
-runRequest :: HttpMethod -> String -> IO (Maybe JSONString)
-runRequest method url = makeRequest method url >>= runRequest'
+apiCall :: HttpMethod -> [String] -> IO (Maybe JSONString)
+apiCall method paths {-body-} =
+    runRequest =<< (makeRequest method $ endpoint ++ (makeUrl paths))
+
+makeUrl :: [String] -> String
+makeUrl paths = '/' : List.intercalate "/" paths
 
 makeRequest :: MonadThrow m => HttpMethod -> String -> m Request
 makeRequest method url = do
     request <- parseUrl url
     return $ configureRequest method request
 
-runRequest' :: Request -> IO (Maybe JSONString)
-runRequest' request = withManager $ \manager -> do
+runRequest :: Request -> IO (Maybe JSONString)
+runRequest request = withManager $ \manager -> do
     response <- httpLbs request manager
     statusCode <- return $ statusCode $ responseStatus response
     if 200 <= statusCode && statusCode < 300
         then return $ Just $ strictResponseBody response
         else return Nothing
  
--- apiCall :: FromJSON a => HttpMethod -> [String] -> [(String, String)] -> IO (Maybe a)
--- apiCall method paths params =
-
 {- file utils -}
 
 database :: FilePath
@@ -103,16 +105,21 @@ maybeReadFile path =
             Left _ -> return Nothing
             Right content -> return $ Just content
 
-decodeWithMaybe :: FromJSON a => Maybe BS.ByteString -> Maybe a
-decodeWithMaybe maybeJson = 
+-- decodeWithMaybe :: FromJSON a => Maybe BS.ByteString -> Maybe a
+-- decodeWithMaybe maybeJson = 
+--     case maybeJson of
+--         Just json -> decodeStrict json
+--         Nothing -> Nothing
+
+decodeJSON :: FromJSON a => Maybe BS.ByteString -> IO (Maybe a)
+decodeJSON maybeJson =
     case maybeJson of
-        Just json -> decodeStrict json
-        Nothing -> Nothing
+        Just json -> return $ decodeStrict json
+        Nothing -> return $ Nothing
 
 -- fetch from local store
 fetchUser :: String -> IO (Maybe User)
-fetchUser _ = maybeReadFile database >>= \json ->
-    return $ decodeWithMaybe json
+fetchUser _ = decodeJSON =<< maybeReadFile database
 
 -- write to local store and return
 writeRecord :: ToJSON a => Maybe a -> IO (Maybe a)
