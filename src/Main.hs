@@ -138,26 +138,29 @@ decodeJSON maybeJson =
         Nothing -> return $ Nothing
 
 -- fetch from local store
-fetchUser :: String -> IO (Maybe User)
-fetchUser _ = decodeJSON =<< maybeReadFile database
+fetchRecord :: (Eq a, FromJSON b) => String -> a -> IO (Maybe b)
+fetchRecord filename _ = decodeJSON =<< maybeReadFile filename
 
 -- write to local store and return
-writeRecord :: ToJSON a => Maybe a -> IO (Maybe a)
-writeRecord maybeRecord =
+writeRecord :: ToJSON a => String -> Maybe a -> IO (Maybe a)
+writeRecord filename maybeRecord =
     case maybeRecord of
-        Just record -> (BS.writeFile database $ (strict. encode) record) >> return maybeRecord
+        Just record -> (BS.writeFile filename $ (strict. encode) record) >> return maybeRecord
         Nothing -> return Nothing
 
 obtainUser :: String -> IO (Maybe User)
 obtainUser username = 
-    fetchUser username >>= \maybeUser ->
+    fetchRecord userPath username >>= \maybeUser ->
         case maybeUser of
             Just user -> return $ Just user
-            Nothing -> getUser username >>= writeRecord
+            Nothing -> getUser username >>= (writeRecord userPath)
+    where
+        userPath :: String
+        userPath = "user.cache"
 
 main :: IO ()
-main = obtainUser defaultUsername >>= \user ->
-    case user of
+main = obtainUser defaultUsername >>= \maybeUser ->
+    case maybeUser of
         Nothing -> print "Nothing"
         Just user -> print user
 
